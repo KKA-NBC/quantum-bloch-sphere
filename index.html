@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>量子ビットのブロッホ球表現 - Quantum Bloch Sphere Visualization</title>
+    <meta name="description" content="量子コンピューターにおける量子ビットの振る舞いを3Dで可視化。ビットフリップ、位相フリップ、デコヒーレンスを理解する教育ツール。">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #000;
+            color: #fff;
+            overflow: hidden;
+        }
+        
+        #canvas-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #444;
+        }
+        
+        button {
+            display: block;
+            margin: 10px 0;
+            padding: 10px 20px;
+            background: #1a5490;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #2a6aa0;
+        }
+        
+        button.active {
+            background: #4CAF50;
+        }
+        
+        #info {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #444;
+            max-width: 300px;
+        }
+        
+        .label {
+            position: absolute;
+            color: #fff;
+            font-size: 14px;
+            pointer-events: none;
+            text-shadow: 0 0 4px rgba(0,0,0,0.8);
+        }
+        
+        #footer {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            font-size: 12px;
+            opacity: 0.7;
+        }
+        
+        a {
+            color: #4488ff;
+            text-decoration: none;
+        }
+        
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <div id="controls">
+            <h3>状態選択</h3>
+            <button id="normal" class="active">正常な状態</button>
+            <button id="bitflip">ビットフリップ</button>
+            <button id="phaseflip">位相フリップ</button>
+            <button id="decoherence">デコヒーレンス（情報消失）</button>
+        </div>
+        
+        <div id="info">
+            <h3>量子ビットの状態</h3>
+            <p id="state-description">
+                純粋な重ね合わせ状態を表示しています。
+                矢印は量子ビットの状態ベクトルを示します。
+            </p>
+            <div style="margin-top: 15px; font-size: 12px; line-height: 1.5;">
+                <p><strong>軸の説明：</strong></p>
+                <p>• Z軸（青）: |0⟩と|1⟩</p>
+                <p>• X軸（赤）: |+⟩と|-⟩</p>
+                <p>• Y軸（緑）: |+i⟩と|-i⟩</p>
+            </div>
+        </div>
+        
+        <div id="footer">
+            <p>Quantum Bloch Sphere Visualization | <a href="https://github.com/YOUR_USERNAME/quantum-bloch-sphere" target="_blank">GitHub</a></p>
+        </div>
+    </div>
+
+    <script>
+        // シーン、カメラ、レンダラーの設定
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // 背景色
+        scene.background = new THREE.Color(0x0a0a0a);
+
+        // ライティング
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 5, 5);
+        scene.add(directionalLight);
+
+        // カメラ位置
+        camera.position.set(3, 2, 3);
+        camera.lookAt(0, 0, 0);
+
+        // ブロッホ球の作成
+        const sphereGeometry = new THREE.SphereGeometry(1, 32, 32);
+        const sphereMaterial = new THREE.MeshPhongMaterial({
+            color: 0x1a5490,
+            transparent: true,
+            opacity: 0.3,
+            wireframe: false
+        });
+        const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        scene.add(sphere);
+
+        // ワイヤーフレーム球
+        const wireframeGeometry = new THREE.SphereGeometry(1.01, 16, 16);
+        const wireframeMaterial = new THREE.MeshBasicMaterial({
+            color: 0x4488ff,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.5
+        });
+        const wireframeSphere = new THREE.Mesh(wireframeGeometry, wireframeMaterial);
+        scene.add(wireframeSphere);
+
+        // 軸の作成
+        const createAxis = (start, end, color) => {
+            const geometry = new THREE.BufferGeometry().setFromPoints([start, end]);
+            const material = new THREE.LineBasicMaterial({ color: color });
+            return new THREE.Line(geometry, material);
+        };
+
+        // X軸（赤）- |+⟩と|-⟩
+        const xAxis = createAxis(
+            new THREE.Vector3(-1.5, 0, 0),
+            new THREE.Vector3(1.5, 0, 0),
+            0xff0000
+        );
+        scene.add(xAxis);
+
+        // Y軸（緑）- |+i⟩と|-i⟩
+        const yAxis = createAxis(
+            new THREE.Vector3(0, -1.5, 0),
+            new THREE.Vector3(0, 1.5, 0),
+            0x00ff00
+        );
+        scene.add(yAxis);
+
+        // Z軸（青）- |0⟩と|1⟩
+        const zAxis = createAxis(
+            new THREE.Vector3(0, 0, -1.5),
+            new THREE.Vector3(0, 0, 1.5),
+            0x0088ff
+        );
+        scene.add(zAxis);
+
+        // 状態ベクトル（矢印）の作成
+        const arrowDirection = new THREE.Vector3(0, 0, 1);
+        const arrowOrigin = new THREE.Vector3(0, 0, 0);
+        const arrowLength = 1;
+        const arrowColor = 0xffff00;
+        let arrowHelper = new THREE.ArrowHelper(arrowDirection, arrowOrigin, arrowLength, arrowColor, 0.3, 0.2);
+        scene.add(arrowHelper);
+
+        // ラベルの作成
+        const labels = [];
+        const createLabel = (text, position) => {
+            const label = document.createElement('div');
+            label.className = 'label';
+            label.textContent = text;
+            document.getElementById('canvas-container').appendChild(label);
+            labels.push({ element: label, position: position });
+            return label;
+        };
+
+        createLabel('|0⟩', new THREE.Vector3(0, 0, 1.6));
+        createLabel('|1⟩', new THREE.Vector3(0, 0, -1.6));
+        createLabel('|+⟩', new THREE.Vector3(1.6, 0, 0));
+        createLabel('|-⟩', new THREE.Vector3(-1.6, 0, 0));
+        createLabel('|+i⟩', new THREE.Vector3(0, 1.6, 0));
+        createLabel('|-i⟩', new THREE.Vector3(0, -1.6, 0));
+
+        // ラベル位置の更新
+        function updateLabels() {
+            labels.forEach(labelObj => {
+                const vector = labelObj.position.clone();
+                vector.project(camera);
+                
+                const x = (vector.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (-vector.y * 0.5 + 0.5) * window.innerHeight;
+                
+                labelObj.element.style.left = x + 'px';
+                labelObj.element.style.top = y + 'px';
+            });
+        }
+
+        // 現在の状態
+        let currentState = 'normal';
+        let time = 0;
+
+        // 状態の説明を更新
+        function updateDescription(state) {
+            const descriptions = {
+                'normal': '純粋な重ね合わせ状態を表示しています。矢印は量子ビットの状態ベクトルを示し、球面上を滑らかに回転します。',
+                'bitflip': 'ビットフリップが発生しています。Z軸周りで状態が反転し、|0⟩と|1⟩の間で振動します。',
+                'phaseflip': '位相フリップが発生しています。X-Y平面上で位相が回転し、量子状態の相対位相が変化します。',
+                'decoherence': 'デコヒーレンス（情報消失）が発生しています。矢印が短くなり、量子情報が環境に流出している様子を表現しています。'
+            };
+            document.getElementById('state-description').textContent = descriptions[state];
+        }
+
+        // ボタンのイベントリスナー
+        document.getElementById('normal').addEventListener('click', function() {
+            currentState = 'normal';
+            updateButtons();
+            updateDescription('normal');
+        });
+
+        document.getElementById('bitflip').addEventListener('click', function() {
+            currentState = 'bitflip';
+            updateButtons();
+            updateDescription('bitflip');
+        });
+
+        document.getElementById('phaseflip').addEventListener('click', function() {
+            currentState = 'phaseflip';
+            updateButtons();
+            updateDescription('phaseflip');
+        });
+
+        document.getElementById('decoherence').addEventListener('click', function() {
+            currentState = 'decoherence';
+            updateButtons();
+            updateDescription('decoherence');
+        });
+
+        function updateButtons() {
+            document.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
+            if (currentState === 'normal') {
+                document.getElementById('normal').classList.add('active');
+            } else if (currentState === 'bitflip') {
+                document.getElementById('bitflip').classList.add('active');
+            } else if (currentState === 'phaseflip') {
+                document.getElementById('phaseflip').classList.add('active');
+            } else if (currentState === 'decoherence') {
+                document.getElementById('decoherence').classList.add('active');
+            }
+        }
+
+        // アニメーションループ
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            time += 0.01;
+            
+            // 状態に応じた矢印の更新
+            let newDirection = new THREE.Vector3();
+            let arrowLength = 1;
+            
+            if (currentState === 'normal') {
+                // 正常な状態：球面上を滑らかに動く
+                const theta = time * 0.5;
+                const phi = Math.sin(time * 0.3) * Math.PI * 0.4;
+                
+                newDirection.x = Math.sin(phi) * Math.cos(theta);
+                newDirection.y = Math.sin(phi) * Math.sin(theta);
+                newDirection.z = Math.cos(phi);
+            } else if (currentState === 'bitflip') {
+                // ビットフリップ：Z軸で振動
+                newDirection.x = 0;
+                newDirection.y = 0;
+                newDirection.z = Math.cos(time * 2);
+            } else if (currentState === 'phaseflip') {
+                // 位相フリップ：X-Y平面で回転（Z成分は固定）
+                const angle = time * 2;
+                const zFixed = 0.7; // 固定のZ成分
+                const xyRadius = Math.sqrt(1 - zFixed * zFixed); // X-Y平面での半径
+                
+                newDirection.x = xyRadius * Math.cos(angle);
+                newDirection.y = xyRadius * Math.sin(angle);
+                newDirection.z = zFixed;
+            } else if (currentState === 'decoherence') {
+                // デコヒーレンス：ランダムな動きと長さの減少
+                const theta = time * 0.5 + Math.sin(time * 3) * 0.2;
+                const phi = Math.sin(time * 0.3) * Math.PI * 0.4 + Math.cos(time * 4) * 0.1;
+                
+                newDirection.x = Math.sin(phi) * Math.cos(theta);
+                newDirection.y = Math.sin(phi) * Math.sin(theta);
+                newDirection.z = Math.cos(phi);
+                
+                // 矢印の長さを減少
+                arrowLength = 0.3 + Math.sin(time * 2) * 0.2;
+            }
+            
+            // 矢印の更新
+            scene.remove(arrowHelper);
+            arrowHelper = new THREE.ArrowHelper(
+                newDirection.normalize(),
+                arrowOrigin,
+                arrowLength,
+                arrowColor,
+                arrowLength * 0.3,
+                arrowLength * 0.2
+            );
+            scene.add(arrowHelper);
+            
+            // ラベルの位置を更新
+            updateLabels();
+            
+            renderer.render(scene, camera);
+        }
+
+        // ウィンドウリサイズ対応
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
